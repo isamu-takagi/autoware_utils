@@ -1,4 +1,4 @@
-# Copyright 2025 The Autoware Contributors
+# Copyright 2026 The Autoware Contributors
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from . import actions
-from . import substitutions
+from .global_parameters import GlobalParameters
 
-__all__ = ["actions", "substitutions"]
+__all__ = ["GlobalParameters"]
