@@ -49,5 +49,5 @@ class GlobalParameters(Action):
             if path.is_file():
                 with path.open("r") as fp:
                     params = yaml.safe_load(fp)["/**"]["ros__parameters"]
-        global_params.extend(params.items())
+                global_params.extend(params.items())
         context.launch_configurations["global_params"] = global_params
