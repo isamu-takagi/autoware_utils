@@ -1,0 +1,19 @@
+<launch>
+  <arg name="foo" default="foo"/>
+  <arg name="bar" default="bar"/>
+  <arg name="baz" default="baz"/>
+  <log message="===== ROOT1 ====="/>
+  <log message="$(var foo __UNDEFINED__)"/>
+  <log message="$(var bar __UNDEFINED__)"/>
+  <log message="$(var baz __UNDEFINED__)"/>
+  <log message="$(filename)"/>
+  <include file="$(dirname)/test.launch.xml">
+    <arg name="foo" value="$(var bar)"/>
+    <arg name="bar" value="$(var foo)"/>
+  </include>
+  <log message="===== ROOT2 ====="/>
+  <log message="$(var foo __UNDEFINED__)"/>
+  <log message="$(var bar __UNDEFINED__)"/>
+  <log message="$(var baz __UNDEFINED__)"/>
+  <log message="$(filename)"/>
+</launch>

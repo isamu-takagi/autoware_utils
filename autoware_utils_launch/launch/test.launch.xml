@@ -1,0 +1,7 @@
+<launch>
+  <log message="===== TEST ====="/>
+  <log message="$(var foo __UNDEFINED__)"/>
+  <log message="$(var bar __UNDEFINED__)"/>
+  <log message="$(var baz __UNDEFINED__)"/>
+  <log message="$(filename)"/>
+</launch>
