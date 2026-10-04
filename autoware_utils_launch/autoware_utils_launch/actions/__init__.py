@@ -13,5 +13,6 @@
 # limitations under the License.
 
 from .global_parameters import GlobalParameters
+from .strict_include import StrictInclude
 
-__all__ = ["GlobalParameters"]
+__all__ = ["GlobalParameters", "StrictInclude"]
