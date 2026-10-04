@@ -36,6 +36,12 @@ from launch import LaunchContext
 from launch import LaunchDescriptionEntity
 from launch import LaunchDescriptionSource
 from launch.actions import OpaqueFunction
+from launch.actions import PopEnvironment
+from launch.actions import PopLaunchConfigurations
+from launch.actions import PushEnvironment
+from launch.actions import PushLaunchConfigurations
+from launch.actions import ResetEnvironment
+from launch.actions import ResetLaunchConfigurations
 from launch.actions import SetLaunchConfiguration
 from launch.frontend import Entity
 from launch.frontend import Parser
@@ -185,9 +191,15 @@ class StrictInclude(Action):
 
         # Set launch arguments as launch configurations and then include the launch description.
         return [
+            PushLaunchConfigurations(),
+            PushEnvironment(),
+            ResetEnvironment(),
+            ResetLaunchConfigurations(),
             *set_launch_configuration_actions,
             launch_description,
             OpaqueFunction(function=self._restore_launch_file_location_locals),
+            PopEnvironment(),
+            PopLaunchConfigurations(),
         ]
 
     def _set_launch_file_location_locals(self, context: LaunchContext) -> None:
