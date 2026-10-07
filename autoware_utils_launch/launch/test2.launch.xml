@@ -1,0 +1,11 @@
+<launch>
+  <arg name="foo2" default="foo"/>
+  <arg name="bar2" default="bar"/>
+  <arg name="baz2" default="baz"/>
+
+  <log message="===== TEST2 ====="/>
+  <log message="$(var foo2 __UNDEFINED__)"/>
+  <log message="$(var bar2 __UNDEFINED__)"/>
+  <log message="$(var baz2 __UNDEFINED__)"/>
+  <log message="$(filename)"/>
+</launch>

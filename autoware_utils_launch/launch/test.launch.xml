@@ -1,7 +1,21 @@
 <launch>
-  <log message="===== TEST ====="/>
+  <arg name="foo"/>
+  <arg name="bar"/>
+  <arg name="baz" default="baz"/>
+
+  <group>
+    <arg name="aaa" default="aaa"/>
+  </group>
+
+  <log message="===== TEST1 ====="/>
   <log message="$(var foo __UNDEFINED__)"/>
   <log message="$(var bar __UNDEFINED__)"/>
   <log message="$(var baz __UNDEFINED__)"/>
   <log message="$(filename)"/>
+
+  <include file="/home/isamutakagi/sandbox/strict-include/src/autoware_utils/autoware_utils_launch/launch/test2.launch.xml">
+    <arg name="foo2" value="aaa"/>
+    <arg name="bar2" value="bbb"/>
+    <arg name="baz2" value="ccc"/>
+  </include>
 </launch>

@@ -3,6 +3,8 @@
 
 # https://github.com/ros2/launch/blob/rolling/launch/launch/actions/include_launch_description.py
 # https://github.com/ros2/launch/blob/rolling/launch/launch/actions/group_action.py
+# https://github.com/ros2/launch/blob/rolling/launch/launch/launch_description.py
+#
 # Copyright 2018 Open Source Robotics Foundation, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -19,14 +21,11 @@
 
 """Module for the IncludeLaunchDescription action."""
 
-import os
 from typing import Any
 from typing import Dict
 from typing import Iterable
 from typing import List
 from typing import Optional
-from typing import Sequence
-from typing import Text
 from typing import Tuple
 from typing import Type
 from typing import Union
@@ -35,6 +34,8 @@ from launch import Action
 from launch import LaunchContext
 from launch import LaunchDescriptionEntity
 from launch import LaunchDescriptionSource
+from launch.actions import DeclareLaunchArgument
+from launch.actions import IncludeLaunchDescription
 from launch.actions import OpaqueFunction
 from launch.actions import PopEnvironment
 from launch.actions import PopLaunchConfigurations
@@ -46,15 +47,13 @@ from launch.actions import SetLaunchConfiguration
 from launch.frontend import Entity
 from launch.frontend import Parser
 from launch.frontend import expose_action
-from launch.launch_description_sources import AnyLaunchDescriptionSource
-import launch.logging
 from launch.some_substitutions_type import SomeSubstitutionsType
 from launch.utilities import normalize_to_list_of_substitutions
 from launch.utilities import perform_substitutions
 
 
 @expose_action("strict-include")
-class StrictInclude(Action):
+class StrictInclude(IncludeLaunchDescription):
     """
     Action that includes a launch description source and yields its entities when visited.
 
@@ -71,122 +70,43 @@ class StrictInclude(Action):
         **kwargs: Any,
     ) -> None:
         """Create an IncludeLaunchDescription action."""
-        super().__init__(**kwargs)
-        if not isinstance(launch_description_source, LaunchDescriptionSource):
-            launch_description_source = AnyLaunchDescriptionSource(launch_description_source)
-        self.__launch_description_source = launch_description_source
-        self.__launch_arguments = () if launch_arguments is None else tuple(launch_arguments)
-        self.__logger = launch.logging.get_logger(__name__)
+        super().__init__(launch_description_source, launch_arguments=launch_arguments, **kwargs)
 
     @classmethod
     def parse(cls, entity: Entity, parser: Parser) -> Tuple[Type["StrictInclude"], Dict[str, Any]]:
-        """Return `IncludeLaunchDescription` action and kwargs for constructing it."""
         _, kwargs = super().parse(entity, parser)
-        file_path = parser.parse_substitution(entity.get_attr("file"))
-        kwargs["launch_description_source"] = file_path
-        args = []
-        args_arg = entity.get_attr("arg", data_type=List[Entity], optional=True)
-        if args_arg is not None:
-            args.extend(args_arg)
-        args_let = entity.get_attr("let", data_type=List[Entity], optional=True)
-        if args_let is not None:
-            args.extend(args_let)
-        if args:
-            kwargs["launch_arguments"] = [
-                (
-                    parser.parse_substitution(e.get_attr("name")),
-                    parser.parse_substitution(e.get_attr("value")),
-                )
-                for e in args
-            ]
-            for e in args:
-                e.assert_entity_completely_parsed()
         return cls, kwargs
-
-    @property
-    def launch_description_source(self) -> LaunchDescriptionSource:
-        """Getter for self.__launch_description_source."""
-        return self.__launch_description_source
-
-    @property
-    def launch_arguments(self) -> Sequence[Tuple[SomeSubstitutionsType, SomeSubstitutionsType]]:
-        """Getter for self.__launch_arguments."""
-        return self.__launch_arguments
-
-    def _get_launch_file(self) -> str:
-        return os.path.abspath(self.__launch_description_source.location)
-
-    def _get_launch_file_directory(self) -> str:
-        launch_file_location = self._get_launch_file()
-        if os.path.exists(launch_file_location):
-            launch_file_location = os.path.dirname(launch_file_location)
-        else:
-            # If the location does not exist, then it's likely set to '<script>' or something
-            # so just pass it along.
-            launch_file_location = self.__launch_description_source.location
-        return launch_file_location
-
-    def get_sub_entities(self) -> List[LaunchDescriptionEntity]:
-        """Get subentities."""
-        ret = self.__launch_description_source.try_get_launch_description_without_context()
-        return [ret] if ret is not None else []
-
-    def _try_get_arguments_names_without_context(self) -> Optional[List[Text]]:
-        try:
-            context = LaunchContext()
-            return [
-                perform_substitutions(context, normalize_to_list_of_substitutions(arg_name))
-                for arg_name, arg_value in self.__launch_arguments
-            ]
-        except Exception as exc:
-            self.__logger.debug(
-                "Failed to get launch arguments names for launch description "
-                f"'{self.__launch_description_source.location}', "
-                f"with exception: {str(exc)}"
-            )
-        return None
 
     def execute(
         self, context: LaunchContext
     ) -> List[Union[SetLaunchConfiguration, LaunchDescriptionEntity]]:
         """Execute the action."""
-        launch_description = self.__launch_description_source.get_launch_description(context)
+        launch_description = self.launch_description_source.get_launch_description(context)
         self._set_launch_file_location_locals(context)
 
-        # Do best effort checking to see if non-optional, non-default declared arguments
-        # are being satisfied.
-        my_argument_names = [
-            perform_substitutions(context, normalize_to_list_of_substitutions(arg_name))
-            for arg_name, arg_value in self.launch_arguments
-        ]
-        try:
-            declared_launch_arguments = (
-                launch_description.get_launch_arguments_with_include_launch_description_actions()
+        # Create actions to set the launch arguments into the launch configurations.
+        launch_arguments = {}
+        for name, value in self.launch_arguments:
+            resolved_name = perform_substitutions(context, normalize_to_list_of_substitutions(name))
+            resolved_value = perform_substitutions(
+                context, normalize_to_list_of_substitutions(value)
             )
-        except Exception as exc:
-            if hasattr(exc, "add_note"):
-                exc.add_note(f"while executing {self.describe()}")  # type: ignore
-            raise
-        for argument, ild_actions in declared_launch_arguments:
-            if argument._conditionally_included or argument.default_value is not None:
+            launch_arguments[resolved_name] = resolved_value
+
+        argument_names = set(launch_arguments.keys())
+        required_arguments = self._get_toplevel_launch_arguments(launch_description)
+
+        for argument in required_arguments:
+            if argument.default_value is not None:
                 continue
-            argument_names = my_argument_names
-            if ild_actions is not None:
-                for ild_action in ild_actions:
-                    names = ild_action._try_get_arguments_names_without_context()
-                    if names:
-                        argument_names.extend(names)
             if argument.name not in argument_names:
                 raise RuntimeError(
-                    "Included launch description missing required argument '{}' "
-                    "(description: '{}'), given: [{}]".format(
-                        argument.name, argument.description, ", ".join(argument_names)
-                    )
+                    f"Missing required argument '{argument.name}' ({self._get_launch_file()})"
                 )
 
         # Create actions to set the launch arguments into the launch configurations.
         set_launch_configuration_actions = []
-        for name, value in self.launch_arguments:
+        for name, value in launch_arguments.items():
             set_launch_configuration_actions.append(SetLaunchConfiguration(name, value))
 
         # Set launch arguments as launch configurations and then include the launch description.
@@ -201,6 +121,29 @@ class StrictInclude(Action):
             PopEnvironment(),
             PopLaunchConfigurations(),
         ]
+
+    # This is a
+    # LaunchDescription.get_launch_arguments_with_include_launch_description_actions
+    @staticmethod
+    def _get_toplevel_launch_arguments(
+        description: LaunchDescriptionEntity,
+    ) -> Iterable[DeclareLaunchArgument]:
+        declared_launch_arguments: Dict[str, DeclareLaunchArgument] = {}
+
+        def process_entities(entities):
+            for entity in entities:
+                if isinstance(entity, ResetLaunchConfigurations):
+                    return
+                if isinstance(entity, IncludeLaunchDescription):
+                    return
+                if isinstance(entity, DeclareLaunchArgument):
+                    if entity.name in declared_launch_arguments:
+                        ValueError(f"Duplicate launch argument declaration: {entity.name}")
+                    declared_launch_arguments[entity.name] = entity
+                process_entities(entity.describe_sub_entities())
+
+        process_entities(description.entities)
+        return declared_launch_arguments.values()
 
     def _set_launch_file_location_locals(self, context: LaunchContext) -> None:
         context._push_locals()
@@ -240,6 +183,18 @@ class StrictInclude(Action):
         context._pop_locals()
         context.extend_locals(context_locals)
 
-    def __repr__(self) -> Text:
-        """Return a description of this IncludeLaunchDescription as a string."""
-        return f"IncludeLaunchDescription({self.__launch_description_source.location})"
+
+class PushLocals(Action):
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+
+    def execute(self, context: LaunchContext) -> None:
+        context._push_locals()
+
+
+class PopLocals(Action):
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+
+    def execute(self, context: LaunchContext) -> None:
+        context._pop_locals()
