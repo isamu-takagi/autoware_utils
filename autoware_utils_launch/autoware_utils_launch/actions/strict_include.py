@@ -36,7 +36,6 @@ from launch import LaunchDescriptionEntity
 from launch import LaunchDescriptionSource
 from launch.actions import DeclareLaunchArgument
 from launch.actions import IncludeLaunchDescription
-from launch.actions import OpaqueFunction
 from launch.actions import PopEnvironment
 from launch.actions import PopLaunchConfigurations
 from launch.actions import PushEnvironment
@@ -52,12 +51,13 @@ from launch.utilities import normalize_to_list_of_substitutions
 from launch.utilities import perform_substitutions
 
 
-@expose_action("strict-include")
+@expose_action("autoware_strict_include")
 class StrictInclude(IncludeLaunchDescription):
     """
     Action that includes a launch description source and yields its entities when visited.
 
-    scoped and
+    Unlike IncludeLaunchDescription, this enforces forwarding and isolates the scope.
+    This is similar to using an include action in combination with the keep setting of a group action.
     """
 
     def __init__(
@@ -69,7 +69,6 @@ class StrictInclude(IncludeLaunchDescription):
         ] = None,
         **kwargs: Any,
     ) -> None:
-        """Create an IncludeLaunchDescription action."""
         super().__init__(launch_description_source, launch_arguments=launch_arguments, **kwargs)
 
     @classmethod
@@ -80,54 +79,54 @@ class StrictInclude(IncludeLaunchDescription):
     def execute(
         self, context: LaunchContext
     ) -> List[Union[SetLaunchConfiguration, LaunchDescriptionEntity]]:
-        """Execute the action."""
         launch_description = self.launch_description_source.get_launch_description(context)
-        self._set_launch_file_location_locals(context)
+        launch_configurations = {tuple(key): value for key, value in self.launch_arguments}
+        launch_file_location = {
+            "current_launch_file_path": self._get_launch_file(),
+            "current_launch_file_directory": self._get_launch_file_directory(),
+        }
 
-        # Create actions to set the launch arguments into the launch configurations.
-        launch_arguments = {}
-        for name, value in self.launch_arguments:
-            resolved_name = perform_substitutions(context, normalize_to_list_of_substitutions(name))
-            resolved_value = perform_substitutions(
-                context, normalize_to_list_of_substitutions(value)
-            )
-            launch_arguments[resolved_name] = resolved_value
-
-        argument_names = set(launch_arguments.keys())
-        required_arguments = self._get_toplevel_launch_arguments(launch_description)
-
-        for argument in required_arguments:
-            if argument.default_value is not None:
-                continue
-            if argument.name not in argument_names:
-                raise RuntimeError(
-                    f"Missing required argument '{argument.name}' ({self._get_launch_file()})"
-                )
-
-        # Create actions to set the launch arguments into the launch configurations.
-        set_launch_configuration_actions = []
-        for name, value in launch_arguments.items():
-            set_launch_configuration_actions.append(SetLaunchConfiguration(name, value))
-
-        # Set launch arguments as launch configurations and then include the launch description.
+        self._validate_arguments(context, launch_description)
         return [
             PushLaunchConfigurations(),
+            PushLocals(),
             PushEnvironment(),
             ResetEnvironment(),
-            ResetLaunchConfigurations(),
-            *set_launch_configuration_actions,
+            ResetLaunchConfigurations(launch_configurations),
+            ExtendLocals(launch_file_location),
             launch_description,
-            OpaqueFunction(function=self._restore_launch_file_location_locals),
             PopEnvironment(),
+            PopLocals(),
             PopLaunchConfigurations(),
         ]
 
-    # This is a
-    # LaunchDescription.get_launch_arguments_with_include_launch_description_actions
+    def _validate_arguments(
+        self, context: LaunchContext, launch_description: LaunchDescriptionEntity
+    ) -> None:
+        argument_names = []
+        for name, value in self.launch_arguments:
+            resolved_name = perform_substitutions(context, normalize_to_list_of_substitutions(name))
+            argument_names.append(resolved_name)
+
+        provided_arguments = set(argument_names)
+        required_arguments = self._get_toplevel_launch_arguments(launch_description)
+        for argument in required_arguments:
+            if argument.default_value is not None:
+                continue
+            if argument.name not in provided_arguments:
+                raise RuntimeError(
+                    f"Missing argument '{argument.name}' ({self._get_launch_file()})"
+                )
+
     @staticmethod
     def _get_toplevel_launch_arguments(
         description: LaunchDescriptionEntity,
     ) -> Iterable[DeclareLaunchArgument]:
+        """
+        Return a list of launch arguments with its associated include launch descriptions actions.
+
+        This is a non-recursive version of LaunchDescription.get_launch_arguments_with_include_launch_description_actions.
+        """
         declared_launch_arguments: Dict[str, DeclareLaunchArgument] = {}
 
         def process_entities(entities):
@@ -145,44 +144,6 @@ class StrictInclude(IncludeLaunchDescription):
         process_entities(description.entities)
         return declared_launch_arguments.values()
 
-    def _set_launch_file_location_locals(self, context: LaunchContext) -> None:
-        context._push_locals()
-        # Keep the previous launch file path/dir locals so that we can restore them after
-        context_locals = context.get_locals_as_dict()
-        self.__previous_launch_file_path = context_locals.get("current_launch_file_path", None)
-        self.__previous_launch_file_dir = context_locals.get("current_launch_file_directory", None)
-        context.extend_locals(
-            {
-                "current_launch_file_path": self._get_launch_file(),
-            }
-        )
-        context.extend_locals(
-            {
-                "current_launch_file_directory": self._get_launch_file_directory(),
-            }
-        )
-
-    def _restore_launch_file_location_locals(self, context: LaunchContext) -> None:
-        # We want to keep the state of the context locals even after the include, since included
-        # launch descriptions are meant to act as if they were included literally in the parent
-        # launch description.
-        # However, we want to restore the launch file path/dir locals to their previous state, and
-        # we may have to just delete them if we're now going back to a launch script (i.e., not a
-        # launch file). However, there is no easy way to delete context locals, so save current
-        # locals, reset to the state before the include previous state and then re-apply locals,
-        # potentially minus the launch file path/dir locals.
-        context_locals = context.get_locals_as_dict()
-        if self.__previous_launch_file_path is None:
-            del context_locals["current_launch_file_path"]
-        else:
-            context_locals["current_launch_file_path"] = self.__previous_launch_file_path
-        if self.__previous_launch_file_dir is None:
-            del context_locals["current_launch_file_directory"]
-        else:
-            context_locals["current_launch_file_directory"] = self.__previous_launch_file_dir
-        context._pop_locals()
-        context.extend_locals(context_locals)
-
 
 class PushLocals(Action):
     def __init__(self, **kwargs: Any) -> None:
@@ -198,3 +159,12 @@ class PopLocals(Action):
 
     def execute(self, context: LaunchContext) -> None:
         context._pop_locals()
+
+
+class ExtendLocals(Action):
+    def __init__(self, values: Dict[str, Any], **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.__values = values
+
+    def execute(self, context: LaunchContext) -> None:
+        context.extend_locals(self.__values)

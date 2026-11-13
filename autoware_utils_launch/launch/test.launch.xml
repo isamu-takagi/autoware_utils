@@ -13,7 +13,7 @@
   <log message="$(var baz __UNDEFINED__)"/>
   <log message="$(filename)"/>
 
-  <include file="/home/isamutakagi/sandbox/strict-include/src/autoware_utils/autoware_utils_launch/launch/test2.launch.xml">
+  <include file="$(dirname)/test2.launch.xml">
     <arg name="foo2" value="aaa"/>
     <arg name="bar2" value="bbb"/>
     <arg name="baz2" value="ccc"/>
